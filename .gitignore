@@ -1,0 +1,22 @@
+node_modules
+dist
+.env
+.env.local
+.env.*.local
+.DS_Store
+coverage
+
+# Native build outputs
+android/.gradle
+android/app/build
+android/build
+ios/Pods
+ios/build
+src-tauri/target
+src-tauri/gen/schemas
+*.keystore
+*.jks
+*.p12
+*.mobileprovision
+*.cer
+*.p8
