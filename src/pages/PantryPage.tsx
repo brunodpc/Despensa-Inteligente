@@ -72,6 +72,29 @@ function createEmptyForm(): ProductForm {
   return { ...emptyForm }
 }
 
+const unitPresets = [
+  { id: 'un', label: 'Unidade (un)', baseUnit: 'un' as BaseUnit, purchaseUnitLabel: 'unidade', conversion: '1' },
+  { id: 'kg', label: 'Pacote de 1 kg (1.000 g)', baseUnit: 'g' as BaseUnit, purchaseUnitLabel: 'pacote de 1 kg', conversion: '1000' },
+  { id: 'g500', label: 'Pacote de 500 g', baseUnit: 'g' as BaseUnit, purchaseUnitLabel: 'pacote de 500 g', conversion: '500' },
+  { id: 'l', label: 'Embalagem de 1 L (1.000 ml)', baseUnit: 'ml' as BaseUnit, purchaseUnitLabel: 'embalagem de 1 L', conversion: '1000' },
+  { id: 'ml500', label: 'Garrafa de 500 ml', baseUnit: 'ml' as BaseUnit, purchaseUnitLabel: 'garrafa de 500 ml', conversion: '500' },
+]
+
+function presetValue(form: ProductForm) {
+  return unitPresets.find(preset =>
+    preset.baseUnit === form.base_unit &&
+    preset.purchaseUnitLabel === form.purchase_unit_label &&
+    preset.conversion === form.conversion,
+  )?.id ?? 'custom'
+}
+
+function applyUnitPreset(form: ProductForm, id: string): ProductForm {
+  if (id === 'custom') return form
+  const preset = unitPresets.find(item => item.id === id)
+  if (!preset) return form
+  return { ...form, base_unit: preset.baseUnit, purchase_unit_label: preset.purchaseUnitLabel, conversion: preset.conversion }
+}
+
 function formatNumber(value: number) {
   return new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 2 }).format(value)
 }
@@ -115,6 +138,7 @@ export function PantryPage({ householdId, demo = false }: Props) {
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<'all' | 'low' | 'expiry'>('all')
   const [showProductForm, setShowProductForm] = useState(false)
+  const [showDetails, setShowDetails] = useState(false)
   const [editing, setEditing] = useState<PantryProduct | null>(null)
   const [form, setForm] = useState<ProductForm>(createEmptyForm)
   const [stockAction, setStockAction] = useState<{ kind: 'entry' | 'consume'; product: PantryProduct } | null>(null)
@@ -176,11 +200,10 @@ export function PantryPage({ householdId, demo = false }: Props) {
   }), [products, search, filter, expiryAlertDays])
 
   function startCreate() {
-    setEditing(null); setForm(createEmptyForm()); setError(''); setNotice(''); setShowProductForm(true)
+    setEditing(null); setForm(createEmptyForm()); setError(''); setNotice(''); setShowDetails(false); setShowProductForm(true)
   }
   function startEdit(product: PantryProduct) {
-    setEditing(product)
-    setForm({
+    const nextForm: ProductForm = {
       ...emptyForm,
       name: product.name,
       category_id: product.category_id ?? '',
@@ -193,8 +216,10 @@ export function PantryPage({ householdId, demo = false }: Props) {
       target_purchase_units: String(Number(product.target_stock) / product.base_quantity_per_purchase_unit),
       storage_location: product.storage_location ?? '',
       notes: product.notes ?? '',
-    })
-    setError(''); setNotice(''); setShowProductForm(true)
+    }
+    setEditing(product)
+    setForm(nextForm)
+    setError(''); setNotice(''); setShowDetails(presetValue(nextForm) === 'custom'); setShowProductForm(true)
   }
 
   async function submitProduct(event: FormEvent<HTMLFormElement>) {
@@ -388,18 +413,35 @@ export function PantryPage({ householdId, demo = false }: Props) {
             {error && <div className="form-alert error">{error}</div>}
             <div className="pantry-form-actions"><button type="button" className="button button-outline" onClick={() => setStockAction(null)} disabled={saving}>Cancelar</button><button className="button button-primary" disabled={saving}>{saving ? 'Salvando...' : stockAction.kind === 'entry' ? 'Confirmar entrada' : 'Confirmar consumo'}</button></div>
           </form> : <form className="pantry-form" onSubmit={submitProduct}>
-            <div className="pantry-form-grid"><label className="span-2">Nome do produto<input className="text-input" value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} maxLength={120} placeholder="Ex.: Arroz tipo 1" required/></label>
-              <label>Categoria<select className="text-input" value={form.category_id} onChange={event => setForm({ ...form, category_id: event.target.value })}><option value="">Sem categoria</option>{categories.map(category => <option value={category.id} key={category.id}>{category.name}</option>)}</select></label>
-              <label>Marca (opcional)<input className="text-input" value={form.brand} onChange={event => setForm({ ...form, brand: event.target.value })} placeholder="Ex.: Tio João"/></label>
-              <label>Unidade-base<select className="text-input" disabled={Boolean(editing)} value={form.base_unit} onChange={event => setForm({ ...form, base_unit: event.target.value as BaseUnit, conversion: event.target.value === 'un' ? '1' : '1000' })}><option value="g">Gramas (g)</option><option value="ml">Mililitros (ml)</option><option value="un">Unidades (un)</option></select></label>
-              <label>Como você compra?<input className="text-input" value={form.purchase_unit_label} onChange={event => setForm({ ...form, purchase_unit_label: event.target.value })} maxLength={60} placeholder="pacote de 1 kg" required/></label>
-              <label>Conversão para unidade-base<input className="text-input" type="number" min="0.001" step="0.001" value={form.conversion} onChange={event => setForm({ ...form, conversion: event.target.value })} required/><small>Ex.: 1 pacote de 1 kg = 1.000 g</small></label>
-              <label>Estoque mínimo (embalagens)<input className="text-input" type="number" min="0" step="0.01" value={form.minimum_purchase_units} onChange={event => setForm({ ...form, minimum_purchase_units: event.target.value })} required/></label>
-              <label>Estoque desejado (embalagens)<input className="text-input" type="number" min="0" step="0.01" value={form.target_purchase_units} onChange={event => setForm({ ...form, target_purchase_units: event.target.value })} required/></label>
-              <label>Localização<input className="text-input" value={form.storage_location} onChange={event => setForm({ ...form, storage_location: event.target.value })} placeholder="Armário, geladeira..."/></label>
-              <label>Código de barras (opcional)<input className="text-input" value={form.barcode} onChange={event => setForm({ ...form, barcode: event.target.value })} placeholder="EAN/GTIN"/></label>
-              {!editing && <><div className="pantry-form-section span-2">Estoque inicial (opcional)</div><label>Quantidade inicial (embalagens)<input className="text-input" type="number" min="0" step="0.01" value={form.initial_purchase_units} onChange={event => setForm({ ...form, initial_purchase_units: event.target.value })}/></label><label>Custo por embalagem em R$ (opcional)<input className="text-input" type="number" min="0" step="0.01" value={form.initial_unit_cost} onChange={event => setForm({ ...form, initial_unit_cost: event.target.value })} placeholder="Ex.: 6,50"/></label><label>Validade do estoque inicial<input className="text-input" type="date" value={form.initial_expires_on} onChange={event => setForm({ ...form, initial_expires_on: event.target.value })}/></label></>}
-              <label className="span-2">Observações<textarea className="text-input pantry-textarea" value={form.notes} onChange={event => setForm({ ...form, notes: event.target.value })} placeholder="Informações adicionais sobre o produto"/></label>
+            <div className="pantry-form-grid">
+              <label className="span-2">Nome do produto<input className="text-input" value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} maxLength={120} placeholder="Ex.: Arroz tipo 1" required/></label>
+              <label className="span-2">Como você compra?
+                <select className="text-input" disabled={Boolean(editing)} value={presetValue(form)} onChange={event => { const value = event.target.value; setForm(current => applyUnitPreset(current, value)); if (value === 'custom') setShowDetails(true) }}>
+                  {unitPresets.map(preset => <option value={preset.id} key={preset.id}>{preset.label}</option>)}
+                  <option value="custom">Outra embalagem (personalizar)</option>
+                </select>
+                <small>A conversão para grama, ml ou unidade é preenchida automaticamente.</small>
+              </label>
+              <label>Avisar quando chegar a (embalagens)<input className="text-input" type="number" min="0" step="0.01" value={form.minimum_purchase_units} onChange={event => setForm({ ...form, minimum_purchase_units: event.target.value })} required/></label>
+              <label>Quantidade ideal (embalagens)<input className="text-input" type="number" min="0" step="0.01" value={form.target_purchase_units} onChange={event => setForm({ ...form, target_purchase_units: event.target.value })} required/></label>
+              {!editing && <label className="span-2">Já tenho em casa (opcional)<input className="text-input" type="number" min="0" step="0.01" value={form.initial_purchase_units} onChange={event => setForm({ ...form, initial_purchase_units: event.target.value })} placeholder="0"/></label>}
+              <details className="pantry-advanced span-2" open={showDetails} onToggle={event => setShowDetails(event.currentTarget.open)}>
+                <summary>Mais opções (opcional)</summary>
+                <div className="pantry-form-grid pantry-advanced-grid">
+                  <label>Unidade-base<select className="text-input" disabled={Boolean(editing)} value={form.base_unit} onChange={event => setForm({ ...form, base_unit: event.target.value as BaseUnit, conversion: event.target.value === 'un' ? '1' : '1000' })}><option value="g">Gramas (g)</option><option value="ml">Mililitros (ml)</option><option value="un">Unidades (un)</option></select></label>
+                  <label>Como você compra?<input className="text-input" value={form.purchase_unit_label} onChange={event => setForm({ ...form, purchase_unit_label: event.target.value })} maxLength={60} placeholder="pacote de 1 kg" required/></label>
+                  <label>Conversão para unidade-base<input className="text-input" type="number" min="0.001" step="0.001" value={form.conversion} onChange={event => setForm({ ...form, conversion: event.target.value })} required/><small>Ex.: 1 pacote de 1 kg = 1.000 g</small></label>
+                  <label>Categoria<select className="text-input" value={form.category_id} onChange={event => setForm({ ...form, category_id: event.target.value })}><option value="">Sem categoria</option>{categories.map(category => <option value={category.id} key={category.id}>{category.name}</option>)}</select></label>
+                  <label>Marca (opcional)<input className="text-input" value={form.brand} onChange={event => setForm({ ...form, brand: event.target.value })} placeholder="Ex.: Tio João"/></label>
+                  <label>Localização<input className="text-input" value={form.storage_location} onChange={event => setForm({ ...form, storage_location: event.target.value })} placeholder="Armário, geladeira..."/></label>
+                  <label>Código de barras (opcional)<input className="text-input" value={form.barcode} onChange={event => setForm({ ...form, barcode: event.target.value })} placeholder="EAN/GTIN"/></label>
+                  {!editing && <>
+                    <label>Custo por embalagem em R$ (opcional)<input className="text-input" type="number" min="0" step="0.01" value={form.initial_unit_cost} onChange={event => setForm({ ...form, initial_unit_cost: event.target.value })} placeholder="Ex.: 6,50"/></label>
+                    <label>Validade do estoque inicial<input className="text-input" type="date" value={form.initial_expires_on} onChange={event => setForm({ ...form, initial_expires_on: event.target.value })}/></label>
+                  </>}
+                  <label className="span-2">Observações<textarea className="text-input pantry-textarea" value={form.notes} onChange={event => setForm({ ...form, notes: event.target.value })} placeholder="Informações adicionais sobre o produto"/></label>
+                </div>
+              </details>
             </div>
             {error && <div className="form-alert error">{error}</div>}
             <div className="pantry-form-actions"><button type="button" className="button button-outline" onClick={() => setShowProductForm(false)} disabled={saving}>Cancelar</button><button className="button button-primary" disabled={saving}>{saving ? 'Salvando...' : editing ? 'Salvar alterações' : 'Cadastrar produto'}</button></div>
