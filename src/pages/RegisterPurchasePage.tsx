@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
-import { AlertCircle, CheckCircle2, FileImage, FileText, Plus, Receipt, ScanBarcode, Trash2, UploadCloud } from 'lucide-react'
+import { AlertCircle, CheckCircle2, ExternalLink, FileImage, FileText, Plus, Receipt, ScanBarcode, ScanLine, Trash2, UploadCloud } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import { QrScanner } from '../components/QrScanner'
 import { supabase } from '../lib/supabase'
 import { completeDemoPurchase, readDemoData, saveDemoReceiptMetadata } from '../lib/demoData'
 import type { DemoProduct } from '../lib/demoData'
+import { normalizeProductName, parseNfceDocument, parseNfceQr } from '../lib/nfce'
+import type { NfceParsedItem, NfceQrInfo } from '../lib/nfce'
 
 type Product = Pick<DemoProduct, 'id' | 'name' | 'barcode' | 'base_unit' | 'purchase_unit_label' | 'base_quantity_per_purchase_unit'>
 type PurchaseLine = { id: string; productId: string; quantity: string; unitPrice: string; expiresOn: string }
@@ -25,6 +28,11 @@ export function RegisterPurchasePage({ householdId, demo = false }: Props) {
   const [lines, setLines] = useState<PurchaseLine[]>([newLine()])
   const [receiptFile, setReceiptFile] = useState<File | null>(null)
   const [barcode, setBarcode] = useState('')
+  const [scannerOpen, setScannerOpen] = useState(false)
+  const [qrManual, setQrManual] = useState('')
+  const [qrInfo, setQrInfo] = useState<NfceQrInfo | null>(null)
+  const [xmlText, setXmlText] = useState('')
+  const [qrBusy, setQrBusy] = useState(false)
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -71,11 +79,88 @@ export function RegisterPurchasePage({ householdId, demo = false }: Props) {
     if (!found) { setError('Código não encontrado no catálogo. Cadastre o produto na despensa ou confira o número lido.'); return }
     setLines(current => {
       const existing = current.find(line => line.productId === found.id)
-      if (existing) return current.map(line => line.id === found.id ? { ...line, quantity: String(Number(line.quantity) + 1) } : line)
+      if (existing) return current.map(line => line.id === existing.id ? { ...line, quantity: String(Number(line.quantity) + 1) } : line)
       return [...current, newLine(found.id)]
     })
     setBarcode(''); setError('')
     setNotice(`${found.name} adicionado pelo código de barras.`)
+  }
+
+  function appendNote(text: string) {
+    setNotes(current => [current.trim(), text].filter(Boolean).join('\n').slice(0, 2000))
+  }
+
+  function applyParsedItems(items: NfceParsedItem[], source: string) {
+    const unmatched: string[] = []
+    const parsedLines: PurchaseLine[] = []
+    for (const item of items) {
+      const normalized = normalizeProductName(item.name)
+      const found = products.find(product => {
+        const candidate = normalizeProductName(product.name)
+        return candidate === normalized || candidate.includes(normalized) || (normalized.length > 5 && normalized.includes(candidate))
+      })
+      if (!found) { unmatched.push(item.name); continue }
+      parsedLines.push({ ...newLine(found.id), quantity: String(item.quantity), unitPrice: item.unitPrice.toFixed(2) })
+    }
+    if (!parsedLines.length) {
+      setError('Nenhum item da nota correspondeu ao catálogo. Cadastre os produtos na despensa e tente novamente.')
+      return
+    }
+    setLines(current => {
+      const base = current.length === 1 && !current[0].productId ? [] : current
+      const next = [...base]
+      for (const parsed of parsedLines) {
+        const existing = next.find(line => line.productId === parsed.productId)
+        if (existing) {
+          next[next.indexOf(existing)] = {
+            ...existing,
+            quantity: String(Number(existing.quantity || 0) + Number(parsed.quantity)),
+            unitPrice: parsed.unitPrice,
+          }
+        } else next.push(parsed)
+      }
+      return next.length ? next : [newLine(products[0]?.id ?? '')]
+    })
+    setError('')
+    setNotice(`${parsedLines.length} item(ns) preenchido(s) ${source}. Confira os valores antes de confirmar.`)
+    if (unmatched.length) appendNote(`Itens da nota não encontrados no catálogo: ${unmatched.join(', ')}`)
+  }
+
+  const handleQrDetect = useCallback((value: string) => {
+    const info = parseNfceQr(value)
+    setQrInfo(info)
+    setQrManual(value)
+    setScannerOpen(false)
+    setError('')
+    if (info.purchasedAt) setPurchasedAt(info.purchasedAt)
+    if (info.chave) appendNote(`Chave NFC-e: ${info.chave}`)
+    if (info.total) appendNote(`Valor da nota: ${info.total.toFixed(2)}`)
+    setNotice(info.isValidNfce
+      ? `QR da NFC-e lido${info.uf ? ` (${info.uf})` : ''}. Tente importar os itens ou informe manualmente os que faltarem.`
+      : 'QR lido, mas não parece ser uma NFC-e. Você ainda pode usar a chave e informar os itens manualmente.')
+  }, [])
+
+  async function importFromQrUrl() {
+    if (!qrInfo?.url) { setError('Este QR não contém uma URL de consulta. Use o XML ou informe os itens manualmente.'); return }
+    setQrBusy(true); setError('')
+    try {
+      const response = await fetch(qrInfo.url, { mode: 'cors' })
+      if (!response.ok) throw new Error(`Consulta retornou ${response.status}`)
+      const items = parseNfceDocument(await response.text())
+      if (items.length) applyParsedItems(items, 'pela consulta do QR')
+      else setError('A consulta abriu, mas não trouxe os itens em formato legível. Abra a nota no navegador ou cole o XML.')
+    } catch {
+      setError('A SEFAZ não permitiu a leitura automática neste navegador. Use "Abrir consulta" ou cole o XML da nota.')
+    } finally {
+      setQrBusy(false)
+    }
+  }
+
+  function importFromXml() {
+    const items = parseNfceDocument(xmlText)
+    if (!items.length) { setError('Não encontrei itens no texto colado. Cole o conteúdo completo do XML da NFC-e.'); return }
+    applyParsedItems(items, 'do XML')
+    setXmlText('')
   }
 
   async function submitPurchase(event: FormEvent<HTMLFormElement>) {
@@ -146,10 +231,20 @@ export function RegisterPurchasePage({ householdId, demo = false }: Props) {
         <button className="button button-primary purchase-submit" disabled={saving || loading || products.length === 0 || lines.length === 0}><CheckCircle2 size={16}/>{saving ? 'Confirmando compra...' : 'Confirmar compra e atualizar estoque'}</button>
       </form>
       <aside className="purchase-aside">
-        <section className="panel receipt-upload-panel"><div className="panel-heading"><div><h2>Anexar nota fiscal</h2><p>Foto, imagem ou PDF.</p></div><FileText size={19}/></div><label className="receipt-dropzone"><input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" capture="environment" onChange={event => setReceiptFile(event.target.files?.[0] ?? null)}/>{receiptFile ? <><FileImage size={27}/><strong>{receiptFile.name}</strong><small>{(receiptFile.size / 1024 / 1024).toFixed(2)} MB · arquivo selecionado</small></> : <><UploadCloud size={28}/><strong>Selecionar nota ou fotografar</strong><small>JPG, PNG, WEBP ou PDF · até 15 MB</small></>}</label>{receiptFile && <button type="button" className="button button-outline full-button" onClick={() => setReceiptFile(null)}>Remover anexo</button>}<div className="settings-note"><AlertCircle size={15}/><span>A nota fica anexada à compra para conferência. A leitura automática por OCR ainda não está conectada; informe os itens manualmente antes de confirmar.</span></div></section>
+        <section className="panel receipt-upload-panel">
+          <div className="panel-heading"><div><h2>Importar nota fiscal</h2><p>Leia o QR, tente importar os itens ou anexe a nota.</p></div><FileText size={19}/></div>
+          <div className="qr-import-box"><div><strong>Ler QR da nota</strong><small>Válido para NFC-e (modelo 65).</small></div><button type="button" className="button button-outline" onClick={() => setScannerOpen(true)}><ScanLine size={15}/> Abrir câmera</button></div>
+          {qrInfo && <div className="qr-result"><CheckCircle2 size={15}/><span><strong>{qrInfo.isValidNfce ? 'NFC-e reconhecida' : 'Código reconhecido'}</strong><small>{qrInfo.chave || qrInfo.raw.slice(0, 60)}{qrInfo.uf ? ` · UF ${qrInfo.uf}` : ''}{qrInfo.purchasedAt ? ` · ${qrInfo.purchasedAt}` : ''}</small></span></div>}
+          <label className="qr-manual-label">QR / chave de acesso (se a câmera não funcionar)<textarea className="text-input" rows={2} value={qrManual} onChange={event => setQrManual(event.target.value)} placeholder="Cole a URL do QR ou os 44 dígitos da chave"/></label>
+          <div className="qr-actions"><button type="button" className="button button-outline" disabled={!qrManual.trim() || qrBusy} onClick={() => handleQrDetect(qrManual)}>Interpretar texto</button><button type="button" className="button button-primary" disabled={!qrInfo?.url || qrBusy} onClick={() => void importFromQrUrl()}>{qrBusy ? 'Consultando...' : 'Tentar importar itens'}</button>{qrInfo?.url && <a className="button button-outline" href={qrInfo.url} target="_blank" rel="noreferrer">Abrir consulta <ExternalLink size={14}/></a>}</div>
+          <details className="qr-xml"><summary>Colar XML da nota (opcional)</summary><textarea className="text-input" rows={4} value={xmlText} onChange={event => setXmlText(event.target.value)} placeholder="Cole aqui o conteúdo do arquivo .xml"/><button type="button" className="button button-outline full-button" disabled={!xmlText.trim()} onClick={importFromXml}>Importar itens do XML</button></details>
+          <label className="receipt-dropzone"><input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" capture="environment" onChange={event => setReceiptFile(event.target.files?.[0] ?? null)}/>{receiptFile ? <><FileImage size={27}/><strong>{receiptFile.name}</strong><small>{(receiptFile.size / 1024 / 1024).toFixed(2)} MB · arquivo selecionado</small></> : <><UploadCloud size={28}/><strong>Selecionar nota ou fotografar</strong><small>JPG, PNG, WEBP ou PDF · até 15 MB</small></>}</label>{receiptFile && <button type="button" className="button button-outline full-button" onClick={() => setReceiptFile(null)}>Remover anexo</button>}
+          <div className="settings-note"><AlertCircle size={15}/><span>O QR da NFC-e contém a chave da nota, não a lista de itens. Quando a consulta não devolver os produtos, confirme manualmente ou cole o XML. Nunca informe chaves secretas do Supabase aqui.</span></div>
+        </section>
         <section className="panel barcode-panel"><div className="panel-heading"><div><h2>Adicionar por código de barras</h2><p>Digite ou leia com um scanner USB/Bluetooth.</p></div><ScanBarcode size={19}/></div><form className="barcode-form" onSubmit={addScannedBarcode}><label>Código EAN/GTIN<input className="text-input" inputMode="numeric" value={barcode} onChange={event => setBarcode(event.target.value)} placeholder="Ex.: 7891234567890"/></label><button className="button button-outline" disabled={!barcode.trim() || loading}><Plus size={14}/> Localizar produto</button></form><small className="commerce-muted">O código precisa estar cadastrado no produto da despensa. A leitura pela câmera será habilitada em uma próxima integração do scanner nativo.</small></section>
         <section className="panel purchase-stock-note"><div className="panel-heading"><div><h2>O que acontece ao confirmar?</h2></div></div><ul><li>Uma compra é registrada no histórico.</li><li>Os itens entram no estoque como novos lotes.</li><li>As datas de validade ficam vinculadas aos lotes.</li><li>Os preços alimentam o histórico por mercado.</li><li>Itens correspondentes da lista ativa são marcados como comprados.</li></ul></section>
       </aside>
     </div>
+    {scannerOpen && <QrScanner onDetect={handleQrDetect} onClose={() => setScannerOpen(false)} />}
   </div>
 }
