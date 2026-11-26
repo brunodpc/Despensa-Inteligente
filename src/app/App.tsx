@@ -16,6 +16,8 @@ import { SetupNotice } from '../components/SetupNotice'
 import { JoinPage } from '../pages/JoinPage'
 import { SettingsPage } from '../pages/SettingsPage'
 import { PantryPage } from '../pages/PantryPage'
+import { ConsumptionPage } from '../pages/ConsumptionPage'
+import { applyTheme, readAppPreferences } from '../lib/appPreferences'
 
 function AuthenticatedApp() {
   const { user, loading } = useAuth()
@@ -71,6 +73,7 @@ function HouseholdGate() {
       <Routes>
         <Route path="/" element={<OverviewPage householdId={householdId} />} />
         <Route path="/despensa" element={<PantryPage householdId={householdId} />} />
+        <Route path="/consumo" element={<ConsumptionPage householdId={householdId} />} />
         <Route path="/compras" element={<ShoppingPage householdId={householdId} />} />
         <Route path="/registrar-compra" element={<RegisterPurchasePage householdId={householdId} />} />
         <Route path="/modo-mercado" element={<MarketModePage householdId={householdId} />} />
@@ -92,6 +95,7 @@ function DemoApp() {
         <Routes>
           <Route path="/" element={<OverviewPage demo />} />
           <Route path="/despensa" element={<PantryPage demo />} />
+          <Route path="/consumo" element={<ConsumptionPage demo />} />
           <Route path="/compras" element={<ShoppingPage demo />} />
           <Route path="/registrar-compra" element={<RegisterPurchasePage demo />} />
           <Route path="/modo-mercado" element={<MarketModePage demo />} />
@@ -107,6 +111,13 @@ function DemoApp() {
 
 
 export default function App() {
-  const { configured } = useAuth()
+  const { configured, user } = useAuth()
+  useEffect(() => {
+    const apply = () => applyTheme(readAppPreferences(user?.user_metadata).theme)
+    apply()
+    const media = window.matchMedia('(prefers-color-scheme: dark)')
+    media.addEventListener('change', apply)
+    return () => media.removeEventListener('change', apply)
+  }, [user?.user_metadata])
   return configured ? <AuthenticatedApp /> : <DemoApp />
 }

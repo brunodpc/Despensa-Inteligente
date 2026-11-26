@@ -1,11 +1,12 @@
 import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { Bell, ChefHat, ChevronDown, HelpCircle, LayoutDashboard, ListChecks, LogOut, Package, Receipt, Settings, ShoppingBasket, Store, TrendingUp, Users } from 'lucide-react'
+import { Bell, ChefHat, ChevronDown, HelpCircle, LayoutDashboard, ListChecks, LogOut, Minus, Package, Receipt, Settings, ShoppingBasket, Store, TrendingUp, Users } from 'lucide-react'
 import type { ReactNode } from 'react'
 
 const navItems = [
   { to: '/', label: 'Visão geral', icon: LayoutDashboard, end: true },
   { to: '/despensa', label: 'Minha despensa', icon: Package },
+  { to: '/consumo', label: 'Consumo rápido', icon: Minus },
   { to: '/compras', label: 'Lista de compras', icon: ListChecks },
   { to: '/registrar-compra', label: 'Registrar compra', icon: Receipt },
   { to: '/modo-mercado', label: 'Modo mercado', icon: ShoppingBasket },
@@ -15,7 +16,7 @@ const insights = [
   { to: '/relatorios', label: 'Relatórios', icon: Store },
 ]
 const titles: Record<string, string> = {
-  '/': 'Visão geral', '/despensa': 'Minha despensa', '/compras': 'Lista de compras',
+  '/': 'Visão geral', '/despensa': 'Minha despensa', '/consumo': 'Consumo rápido', '/compras': 'Lista de compras',
   '/registrar-compra': 'Registrar compra', '/modo-mercado': 'Modo mercado',
   '/precos': 'Histórico de preços', '/relatorios': 'Relatórios', '/configuracoes': 'Configurações'
 }

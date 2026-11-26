@@ -8,10 +8,11 @@ import {
 import { useAuth } from '../context/AuthContext'
 import { isSupabaseConfigured, supabase } from '../lib/supabase'
 import {
+  applyTheme,
   persistAppPreferences,
   readAppPreferences,
 } from '../lib/appPreferences'
-import type { AppPreferences, BaseUnitPreference, ExpiryAlertDays } from '../lib/appPreferences'
+import type { AppPreferences, BaseUnitPreference, ExpiryAlertDays, ThemePreference } from '../lib/appPreferences'
 import { HouseholdSettingsPage } from './HouseholdSettingsPage'
 
 const DEMO_NAME_KEY = 'despensa-inteligente.demo-profile-name'
@@ -188,6 +189,7 @@ export function SettingsPage({ demo = false, householdId, householdName = 'Minha
           <div className="settings-preference-grid">
             <label>Unidade padrão para novos produtos<select className="text-input" value={preferences.defaultBaseUnit} onChange={event => setPreferences(current => ({ ...current, defaultBaseUnit: event.target.value as BaseUnitPreference }))}><option value="un">Unidades (un)</option><option value="g">Gramas (g)</option><option value="ml">Mililitros (ml)</option></select><small>Usada como sugestão inicial ao cadastrar um produto. A unidade poderá ser alterada no cadastro.</small></label>
             <label>Alerta de validade<select className="text-input" value={preferences.expiryAlertDays} onChange={event => setPreferences(current => ({ ...current, expiryAlertDays: Number(event.target.value) as ExpiryAlertDays }))}><option value={3}>3 dias antes</option><option value={7}>7 dias antes</option><option value={15}>15 dias antes</option></select><small>Define quando um lote passa a ser destacado como próximo do vencimento.</small></label>
+            <label>Aparência<select className="text-input" value={preferences.theme} onChange={event => { const theme = event.target.value as ThemePreference; setPreferences(current => ({ ...current, theme })); applyTheme(theme) }}><option value="light">Claro</option><option value="dark">Escuro</option><option value="system">Seguir o sistema</option></select><small>O tema é aplicado neste dispositivo e sincronizado com sua conta.</small></label>
           </div>
           <div className="settings-fixed-preferences">
             <div><Globe2 size={17}/><span><strong>Idioma</strong><small>Português (Brasil)</small></span><em>PT-BR</em></div>
