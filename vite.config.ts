@@ -3,7 +3,12 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
+// Builds nativos (Capacitor) usam '/'. O deploy da PWA em GitHub Pages usa BASE_PATH.
+const base = process.env.BASE_PATH || '/'
+const assetUrl = (path: string) => `${base.replace(/\/$/, '')}/${path}`
+
 export default defineConfig({
+  base,
   plugins: [
     react(),
     tailwindcss(),
@@ -20,8 +25,8 @@ export default defineConfig({
         orientation: 'portrait-primary',
         lang: 'pt-BR',
         icons: [
-          { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
-          { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' }
+          { src: assetUrl('icons/icon-192.png'), sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: assetUrl('icons/icon-512.png'), sizes: '512x512', type: 'image/png', purpose: 'any maskable' }
         ]
       },
       workbox: {

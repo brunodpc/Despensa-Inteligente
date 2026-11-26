@@ -101,11 +101,11 @@ Siga `supabase/tests/sprint-06-commerce-checklist.md`. A validação de produç�
 ## Multiplataforma
 
 - **Windows:** Tauri 2; pré-requisitos e build em `docs/PLANO_PUBLICACAO.md`.
-- **Android:** Capacitor 8; gerar a plataforma com `npx cap add android`, sincronizar e abrir no Android Studio.
-- **iOS:** exige macOS e Xcode para compilar/assinar.
-- **PWA:** pode ser hospedada em HTTPS e instalada por navegadores compatíveis.
+- **Android:** projeto Capacitor 8 em `android/`; build de APK de teste pelo workflow `Android - APK de teste`.
+- **iOS:** projeto Capacitor 8 em `ios/`; build de IPA sem assinatura pelo workflow `iOS - IPA para teste (sem assinatura)`, executado em runner macOS.
+- **PWA:** deploy em HTTPS pelo workflow `PWA - publicar no GitHub Pages`, instalável pelo navegador.
 
-A estrutura de empacotamento está preparada, mas nenhum instalador `.exe`, APK/AAB ou IPA foi compilado e testado nesta entrega. Os identificadores nativos ainda devem ser confirmados antes de enviar às lojas.
+O passo a passo para colocar o app no celular, configurar os secrets do Supabase e preparar a publicação nas lojas está em `docs/MOBILE_INSTALACAO.md`. A estrutura de empacotamento está pronta, mas nenhum instalador `.exe`, APK/AAB ou IPA foi compilado e testado nesta entrega. Os identificadores nativos ainda devem ser confirmados antes de enviar às lojas.
 
 ## Limitações conhecidas
 
