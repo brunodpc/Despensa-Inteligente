@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { Session, User } from '@supabase/supabase-js'
 import { supabase, isSupabaseConfigured } from '../lib/supabase'
+import { passwordResetRedirectUrl } from '../lib/authRecovery'
 
 type AuthContextValue = {
   user: User | null
@@ -10,6 +11,8 @@ type AuthContextValue = {
   configured: boolean
   signIn: (email: string, password: string) => Promise<void>
   signUp: (email: string, password: string) => Promise<{ needsEmailConfirmation: boolean }>
+  requestPasswordReset: (email: string) => Promise<void>
+  updatePassword: (password: string) => Promise<void>
   signOut: () => Promise<void>
 }
 
@@ -56,6 +59,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const { data, error } = await supabase.auth.signUp({ email, password })
       if (error) throw error
       return { needsEmailConfirmation: !data.session }
+    },
+    async requestPasswordReset(email) {
+      if (!supabase) throw new Error('O Supabase ainda não foi configurado.')
+      const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: passwordResetRedirectUrl() })
+      if (error) throw error
+    },
+    async updatePassword(password) {
+      if (!supabase) throw new Error('O Supabase ainda não foi configurado.')
+      const { error } = await supabase.auth.updateUser({ password })
+      if (error) throw error
     },
     async signOut() {
       if (!supabase) return

@@ -17,6 +17,7 @@ import { JoinPage } from '../pages/JoinPage'
 import { SettingsPage } from '../pages/SettingsPage'
 import { PantryPage } from '../pages/PantryPage'
 import { ConsumptionPage } from '../pages/ConsumptionPage'
+import { ResetPasswordPage } from '../pages/ResetPasswordPage'
 import { applyTheme, readAppPreferences } from '../lib/appPreferences'
 
 function AuthenticatedApp() {
@@ -112,6 +113,7 @@ function DemoApp() {
 
 export default function App() {
   const { configured, user } = useAuth()
+  const location = useLocation()
   useEffect(() => {
     const apply = () => applyTheme(readAppPreferences(user?.user_metadata).theme)
     apply()
@@ -119,5 +121,6 @@ export default function App() {
     media.addEventListener('change', apply)
     return () => media.removeEventListener('change', apply)
   }, [user?.user_metadata])
+  if (configured && new URLSearchParams(location.search).has('recuperar')) return <ResetPasswordPage />
   return configured ? <AuthenticatedApp /> : <DemoApp />
 }
