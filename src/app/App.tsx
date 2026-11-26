@@ -69,7 +69,7 @@ function HouseholdGate() {
   if (state === 'error') return <SetupNotice title="Não foi possível carregar sua residência" detail="Confira se a migração SQL foi aplicada e tente novamente." />
 
   return (
-    <AppShell householdName={householdName}>
+    <AppShell householdName={householdName} householdId={householdId}>
       <Routes>
         <Route path="/" element={<OverviewPage householdId={householdId} />} />
         <Route path="/despensa" element={<PantryPage householdId={householdId} />} />

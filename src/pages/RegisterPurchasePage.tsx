@@ -4,6 +4,7 @@ import { AlertCircle, CheckCircle2, ExternalLink, FileImage, FileText, Plus, Rec
 import { Link } from 'react-router-dom'
 import { QrScanner } from '../components/QrScanner'
 import { supabase } from '../lib/supabase'
+import { notifyShoppingListChanged } from '../lib/events'
 import { completeDemoPurchase, readDemoData, saveDemoReceiptMetadata } from '../lib/demoData'
 import type { DemoProduct } from '../lib/demoData'
 import { normalizeProductName, parseNfceDocument, parseNfceQr } from '../lib/nfce'
@@ -179,7 +180,7 @@ export function RegisterPurchasePage({ householdId, demo = false }: Props) {
       })
       if (receiptFile) saveDemoReceiptMetadata({ fileName: receiptFile.name, mimeType: receiptFile.type })
       setProducts(data.products.filter(p => p.is_active)); setStores(data.stores); setNotice(`Compra registrada na prévia local: ${currency(data.purchases[0]?.total ?? total)}. O estoque e o histórico de preços foram atualizados neste navegador.`)
-      setLines([newLine(data.products[0]?.id ?? '')]); setDiscount('0'); setNotes(''); setReceiptFile(null); setSaving(false); return
+      setLines([newLine(data.products[0]?.id ?? '')]); setDiscount('0'); setNotes(''); setReceiptFile(null); notifyShoppingListChanged(); setSaving(false); return
     }
 
     if (!supabase || !householdId) { setError('Supabase não está conectado.'); setSaving(false); return }
@@ -209,7 +210,7 @@ export function RegisterPurchasePage({ householdId, demo = false }: Props) {
       setError(purchaseError.message); setSaving(false); return
     }
     setNotice(`Compra confirmada com sucesso (${String(purchaseId).slice(0, 8)}). O estoque, os movimentos e o histórico de preços foram atualizados.`)
-    setLines([newLine(products[0]?.id ?? '')]); setDiscount('0'); setNotes(''); setReceiptFile(null); await loadData(); setSaving(false)
+    setLines([newLine(products[0]?.id ?? '')]); setDiscount('0'); setNotes(''); setReceiptFile(null); notifyShoppingListChanged(); await loadData(); setSaving(false)
   }
 
   return <div className="module-page">

@@ -3,6 +3,7 @@ import type { FormEvent } from 'react'
 import { ArrowRight, Check, CirclePlus, ClipboardList, Minus, Plus, RefreshCw, ShoppingCart, Trash2 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { notifyShoppingListChanged } from '../lib/events'
 import { readDemoData, removeDemoListItem, saveDemoListItem, syncDemoLowStock, updateDemoBudget, updateDemoListItem, writeDemoData } from '../lib/demoData'
 import type { BaseUnit, DemoProduct } from '../lib/demoData'
 
@@ -99,7 +100,7 @@ export function ShoppingPage({ householdId, demo = false }: Props) {
       }
       if (shouldReload) await loadData()
     }
-    if (completed) { setProductId(''); setCustomName(''); setQuantity('1') }
+    if (completed) { setProductId(''); setCustomName(''); setQuantity('1'); notifyShoppingListChanged() }
     setSaving(false)
   }
 
@@ -108,10 +109,11 @@ export function ShoppingPage({ householdId, demo = false }: Props) {
     if (demo) {
       const data = updateDemoListItem(item.id, { is_checked: next })
       setItems(data.list.items.map(row => ({ ...row, product: data.products.find(p => p.id === row.product_id) ?? null })))
+      notifyShoppingListChanged()
     } else if (supabase && householdId) {
       const { error: updateError } = await supabase.from('shopping_list_items').update({ is_checked: next }).eq('id', item.id).eq('household_id', householdId)
       if (updateError) setError(updateError.message)
-      else setItems(current => current.map(row => row.id === item.id ? { ...row, is_checked: next } : row))
+      else { setItems(current => current.map(row => row.id === item.id ? { ...row, is_checked: next } : row)); notifyShoppingListChanged() }
     }
   }
 
@@ -121,10 +123,11 @@ export function ShoppingPage({ householdId, demo = false }: Props) {
     if (demo) {
       const data = updateDemoListItem(item.id, { requested_quantity: nextBase })
       setItems(data.list.items.map(row => ({ ...row, product: data.products.find(p => p.id === row.product_id) ?? null })))
+      notifyShoppingListChanged()
     } else if (supabase && householdId) {
       const { error: updateError } = await supabase.from('shopping_list_items').update({ requested_quantity: nextBase }).eq('id', item.id).eq('household_id', householdId)
       if (updateError) setError(updateError.message)
-      else setItems(current => current.map(row => row.id === item.id ? { ...row, requested_quantity: nextBase } : row))
+      else { setItems(current => current.map(row => row.id === item.id ? { ...row, requested_quantity: nextBase } : row)); notifyShoppingListChanged() }
     }
   }
 
@@ -133,10 +136,11 @@ export function ShoppingPage({ householdId, demo = false }: Props) {
     if (demo) {
       const data = removeDemoListItem(item.id)
       setItems(data.list.items.map(row => ({ ...row, product: data.products.find(p => p.id === row.product_id) ?? null })))
+      notifyShoppingListChanged()
     } else if (supabase && householdId) {
       const { error: deleteError } = await supabase.from('shopping_list_items').delete().eq('id', item.id).eq('household_id', householdId)
       if (deleteError) setError(deleteError.message)
-      else setItems(current => current.filter(row => row.id !== item.id))
+      else { setItems(current => current.filter(row => row.id !== item.id)); notifyShoppingListChanged() }
     }
   }
 
