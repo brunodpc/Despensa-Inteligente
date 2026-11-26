@@ -33,13 +33,10 @@ jobs:
       - name: Sincronizar Capacitor
         run: npx cap sync ios
 
-      - name: CocoaPods
-        working-directory: ios/App
-        run: pod install
-
       - name: Compilar app sem assinatura
+        # Capacitor 8 usa Swift Package Manager; não há Podfile.
         run: |
-          xcodebuild -workspace ios/App/App.xcworkspace \
+          xcodebuild -project ios/App/App.xcodeproj \
             -scheme App \
             -configuration Debug \
             -destination 'generic/platform=iOS' \
