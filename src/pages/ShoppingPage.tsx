@@ -6,7 +6,7 @@ import { supabase } from '../lib/supabase'
 import { notifyShoppingListChanged } from '../lib/events'
 import { buildShoppingListPdf, downloadShoppingListPdf } from '../lib/shoppingListPdf'
 import type { ShoppingPdfData, ShoppingPdfItem } from '../lib/shoppingListPdf'
-import { readDemoData, removeDemoListItem, saveDemoListItem, syncDemoLowStock, updateDemoBudget, updateDemoListItem, writeDemoData } from '../lib/demoData'
+import { addDemoStock, readDemoData, removeDemoListItem, saveDemoListItem, syncDemoLowStock, updateDemoBudget, updateDemoListItem, writeDemoData } from '../lib/demoData'
 import type { BaseUnit, DemoProduct } from '../lib/demoData'
 
 type Product = Pick<DemoProduct, 'id' | 'name' | 'brand' | 'base_unit' | 'purchase_unit_label' | 'base_quantity_per_purchase_unit' | 'current_stock' | 'minimum_stock' | 'target_stock'>
@@ -29,6 +29,8 @@ export function ShoppingPage({ householdId, householdName = 'Minha casa', demo =
   const [customName, setCustomName] = useState('')
   const [quantity, setQuantity] = useState('1')
   const [customUnit, setCustomUnit] = useState<BaseUnit>('un')
+  const [buyingNow, setBuyingNow] = useState(false)
+  const [boughtExpiry, setBoughtExpiry] = useState('')
   const [budgetInput, setBudgetInput] = useState('')
 
   const loadData = useCallback(async () => {
@@ -121,35 +123,63 @@ export function ShoppingPage({ householdId, householdName = 'Minha casa', demo =
     const qty = Number(quantity)
     if (!Number.isFinite(qty) || qty <= 0) { setError('Informe uma quantidade maior que zero.'); return }
     if (!productId && !customName.trim()) { setError('Selecione um produto ou informe um nome personalizado.'); return }
+    if (buyingNow && !productId) { setError('Para atualizar a despensa, escolha um produto cadastrado.'); return }
+    const purchaseNow = buyingNow && !!productId
     setSaving(true); setError(''); setNotice('')
-    let shouldReload = false
     let completed = false
     if (demo) {
-      const data = saveDemoListItem({ productId: productId || undefined, customName: customName || undefined, quantity: qty, unit: customUnit })
+      let data = saveDemoListItem({ productId: productId || undefined, customName: customName || undefined, quantity: qty, unit: customUnit })
+      if (purchaseNow) {
+        const added = data.list.items.find(item => item.product_id === productId)
+        if (added) data = updateDemoListItem(added.id, { is_checked: true })
+        const conversion = products.find(p => p.id === productId)?.base_quantity_per_purchase_unit ?? 1
+        data = addDemoStock({ productId, quantity: qty * conversion, expiresOn: boughtExpiry || undefined })
+      }
       setItems(data.list.items.map(item => ({ ...item, product: data.products.find(p => p.id === item.product_id) ?? null })))
-      setProducts(data.products.filter(p => p.is_active)); setNotice('Item adicionado à lista compartilhável desta prévia.'); completed = true
+      setProducts(data.products.filter(p => p.is_active))
+      setNotice(purchaseNow ? 'Item adicionado, marcado como comprado e estoque atualizado nesta prévia.' : 'Item adicionado à lista compartilhável desta prévia.')
+      completed = true
     } else if (supabase && householdId) {
       const product = products.find(p => p.id === productId)
       const baseQuantity = qty * (product?.base_quantity_per_purchase_unit ?? 1)
+      let stockError = ''
       if (product) {
         const existing = items.find(item => item.product_id === product.id)
         if (existing) {
-          const { error: updateError } = await supabase.from('shopping_list_items').update({ requested_quantity: baseQuantity, is_checked: false, source: 'manual' }).eq('id', existing.id).eq('household_id', householdId)
+          const { error: updateError } = await supabase.from('shopping_list_items').update({ requested_quantity: baseQuantity, is_checked: purchaseNow, source: 'manual' }).eq('id', existing.id).eq('household_id', householdId)
           if (updateError) setError(updateError.message)
-          else { setNotice('Quantidade atualizada na lista.'); shouldReload = true; completed = true }
+          else completed = true
         } else {
-          const { error: insertError } = await supabase.from('shopping_list_items').insert({ household_id: householdId, list_id: list.id, product_id: product.id, requested_quantity: baseQuantity, unit: product.base_unit, source: 'manual' })
+          const { error: insertError } = await supabase.from('shopping_list_items').insert({ household_id: householdId, list_id: list.id, product_id: product.id, requested_quantity: baseQuantity, unit: product.base_unit, is_checked: purchaseNow, source: 'manual' })
           if (insertError) setError(insertError.message)
-          else { setNotice('Produto adicionado à lista.'); shouldReload = true; completed = true }
+          else completed = true
+        }
+        if (completed && purchaseNow) {
+          const { error: entryError } = await supabase.rpc('add_stock_lot', {
+            p_household_id: householdId,
+            p_product_id: product.id,
+            p_quantity: baseQuantity,
+            p_unit: product.base_unit,
+            p_unit_cost: null,
+            p_expires_on: boughtExpiry || null,
+            p_storage_location: null,
+            p_source: 'purchase',
+            p_movement_type: 'entry',
+          })
+          if (entryError) stockError = entryError.message
         }
       } else {
         const { error: insertError } = await supabase.from('shopping_list_items').insert({ household_id: householdId, list_id: list.id, custom_name: customName.trim(), requested_quantity: qty, unit: customUnit, source: 'manual' })
         if (insertError) setError(insertError.message)
-        else { setNotice('Item personalizado adicionado.'); shouldReload = true; completed = true }
+        else completed = true
       }
-      if (shouldReload) await loadData()
+      if (completed) {
+        await loadData()
+        if (stockError) setError(`Item salvo na lista, mas o estoque não foi atualizado: ${stockError}`)
+        else setNotice(purchaseNow ? 'Item adicionado, marcado como comprado e estoque atualizado.' : product ? 'Produto adicionado à lista.' : 'Item personalizado adicionado.')
+      }
     }
-    if (completed) { setProductId(''); setCustomName(''); setQuantity('1'); notifyShoppingListChanged() }
+    if (completed) { setProductId(''); setCustomName(''); setQuantity('1'); setBuyingNow(false); setBoughtExpiry(''); notifyShoppingListChanged() }
     setSaving(false)
   }
 
@@ -231,7 +261,7 @@ export function ShoppingPage({ householdId, householdName = 'Minha casa', demo =
         </div>
       </section>
       <aside className="panel commerce-side"><div className="panel-heading"><div><h2>Adicionar à lista</h2><p>Produto cadastrado ou item avulso.</p></div><CirclePlus size={18}/></div>
-        <form className="commerce-form" onSubmit={addItem}><label>Produto cadastrado<select className="text-input" value={productId} onChange={event => { setProductId(event.target.value); setCustomName('') }}><option value="">Escolher produto...</option>{products.map(product => <option key={product.id} value={product.id}>{product.name}</option>)}</select></label><div className="commerce-or">ou adicione um item que ainda não está no catálogo</div><label>Nome personalizado<input className="text-input" value={customName} onChange={event => { setCustomName(event.target.value); setProductId('') }} placeholder="Ex.: Guardanapo"/></label><div className="commerce-form-row"><label>Quantidade<input className="text-input" type="number" min="0.01" step="0.01" value={quantity} onChange={event => setQuantity(event.target.value)} required/></label>{!productId && <label>Unidade<select className="text-input" value={customUnit} onChange={event => setCustomUnit(event.target.value as BaseUnit)}><option value="un">Unidade</option><option value="g">Gramas</option><option value="ml">Mililitros</option></select></label>}</div><button className="button button-primary full-button" disabled={saving || loading}><Plus size={15}/>{saving ? 'Adicionando...' : 'Adicionar item'}</button></form>
+        <form className="commerce-form" onSubmit={addItem}><label>Produto cadastrado<select className="text-input" value={productId} onChange={event => { setProductId(event.target.value); setCustomName('') }}><option value="">Escolher produto...</option>{products.map(product => <option key={product.id} value={product.id}>{product.name}</option>)}</select></label><div className="commerce-or">ou adicione um item que ainda não está no catálogo</div><label>Nome personalizado<input className="text-input" value={customName} onChange={event => { setCustomName(event.target.value); setProductId(''); setBuyingNow(false) }} placeholder="Ex.: Guardanapo"/></label><label className={`commerce-buy-now ${productId ? '' : 'is-disabled'}`}><input type="checkbox" checked={buyingNow} disabled={!productId} onChange={event => setBuyingNow(event.target.checked)}/><span><strong>Estou comprando agora</strong><small>Entra na despensa e o item já fica marcado como comprado.</small></span></label>{buyingNow && !productId && <small className="commerce-hint">Escolha um produto cadastrado para atualizar o estoque.</small>}{buyingNow && <label>Validade do lote (opcional)<input className="text-input" type="date" value={boughtExpiry} onChange={event => setBoughtExpiry(event.target.value)}/></label>}<div className="commerce-form-row"><label>{buyingNow ? 'Quantidade comprada agora' : 'Quantidade'}<input className="text-input" type="number" min="0.01" step="0.01" value={quantity} onChange={event => setQuantity(event.target.value)} required/></label>{!productId && <label>Unidade<select className="text-input" value={customUnit} onChange={event => setCustomUnit(event.target.value as BaseUnit)}><option value="un">Unidade</option><option value="g">Gramas</option><option value="ml">Mililitros</option></select></label>}</div><button className="button button-primary full-button" disabled={saving || loading}><Plus size={15}/>{saving ? 'Adicionando...' : 'Adicionar item'}</button></form>
         <div className="commerce-budget"><div className="panel-heading"><div><h2>Orçamento da lista</h2><p>Usado também no modo mercado.</p></div></div><div className="commerce-budget-row"><label className="sr-only" htmlFor="shopping-budget">Orçamento em reais</label><span>R$</span><input id="shopping-budget" className="text-input" type="number" min="0" step="0.01" value={budgetInput} onChange={event => setBudgetInput(event.target.value)} placeholder="Defina um limite"/><button className="button button-outline" onClick={() => void saveBudget()}>Salvar</button></div><div className="commerce-budget-foot"><span>Estimativa de itens precificados</span><strong>{currency(estimatedTotal)}</strong></div></div>
         <div className="commerce-side-links"><Link to="/registrar-compra">Registrar uma compra <ArrowRight size={14}/></Link><Link to="/precos">Consultar histórico de preços <ArrowRight size={14}/></Link></div>
       </aside>

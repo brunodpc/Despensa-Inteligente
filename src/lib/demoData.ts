@@ -338,6 +338,18 @@ export function completeDemoPurchase(input: {
   return data
 }
 
+export function addDemoStock(input: { productId: string; quantity: number; expiresOn?: string }) {
+  const data = readDemoData()
+  const product = data.products.find(item => item.id === input.productId)
+  if (product) {
+    product.current_stock += input.quantity
+    if (input.expiresOn && (!product.next_expiry || input.expiresOn < product.next_expiry)) product.next_expiry = input.expiresOn
+  }
+  syncDemoLowStock(data)
+  writeDemoData(data)
+  return data
+}
+
 export function addDemoPrice(input: { productId: string; storeName: string; packagePrice: number; observedAt: string }) {
   const data = readDemoData()
   const product = data.products.find(item => item.id === input.productId)
