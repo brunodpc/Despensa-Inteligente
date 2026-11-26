@@ -74,7 +74,7 @@ function HouseholdGate() {
         <Route path="/" element={<OverviewPage householdId={householdId} />} />
         <Route path="/despensa" element={<PantryPage householdId={householdId} />} />
         <Route path="/consumo" element={<ConsumptionPage householdId={householdId} />} />
-        <Route path="/compras" element={<ShoppingPage householdId={householdId} />} />
+        <Route path="/compras" element={<ShoppingPage householdId={householdId} householdName={householdName} />} />
         <Route path="/registrar-compra" element={<RegisterPurchasePage householdId={householdId} />} />
         <Route path="/modo-mercado" element={<MarketModePage householdId={householdId} />} />
         <Route path="/precos" element={<PriceHistoryPage householdId={householdId} />} />

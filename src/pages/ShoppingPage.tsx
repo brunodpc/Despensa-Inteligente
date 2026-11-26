@@ -1,21 +1,23 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
-import { ArrowRight, Check, CirclePlus, ClipboardList, Minus, Plus, RefreshCw, ShoppingCart, Trash2 } from 'lucide-react'
+import { ArrowRight, Check, CirclePlus, ClipboardList, Download, Minus, Plus, RefreshCw, Share2, ShoppingCart, Trash2 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { notifyShoppingListChanged } from '../lib/events'
+import { buildShoppingListPdf, downloadShoppingListPdf } from '../lib/shoppingListPdf'
+import type { ShoppingPdfData, ShoppingPdfItem } from '../lib/shoppingListPdf'
 import { readDemoData, removeDemoListItem, saveDemoListItem, syncDemoLowStock, updateDemoBudget, updateDemoListItem, writeDemoData } from '../lib/demoData'
 import type { BaseUnit, DemoProduct } from '../lib/demoData'
 
 type Product = Pick<DemoProduct, 'id' | 'name' | 'brand' | 'base_unit' | 'purchase_unit_label' | 'base_quantity_per_purchase_unit' | 'current_stock' | 'minimum_stock' | 'target_stock'>
 type ListRow = { id: string; product_id: string | null; custom_name: string | null; requested_quantity: number; unit: BaseUnit; estimated_unit_price: number | null; is_checked: boolean; source: string; created_at: string; product?: Product | null }
 type List = { id: string; name: string; budget: number | null }
-type Props = { householdId?: string; demo?: boolean }
+type Props = { householdId?: string; householdName?: string; demo?: boolean }
 
 const currency = (value: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value)
 const unitName: Record<BaseUnit, string> = { g: 'g', ml: 'ml', un: 'un.' }
 
-export function ShoppingPage({ householdId, demo = false }: Props) {
+export function ShoppingPage({ householdId, householdName = 'Minha casa', demo = false }: Props) {
   const [list, setList] = useState<List | null>(null)
   const [items, setItems] = useState<ListRow[]>([])
   const [products, setProducts] = useState<Product[]>([])
@@ -65,6 +67,53 @@ export function ShoppingPage({ householdId, demo = false }: Props) {
   const pendingItems = items.filter(item => !item.is_checked)
   const checkedItems = items.filter(item => item.is_checked)
   const estimatedTotal = items.reduce((sum, item) => sum + (Number(item.requested_quantity) * Number(item.estimated_unit_price ?? 0)), 0)
+
+  function pdfItem(item: ListRow): ShoppingPdfItem {
+    const product = item.product
+    const purchaseQty = Number(item.requested_quantity) / (product?.base_quantity_per_purchase_unit ?? 1)
+    const label = product?.purchase_unit_label ?? unitName[item.unit]
+    const details = [item.source === 'low_stock' ? 'Reposição automática pelo estoque' : 'Adicionado à lista']
+    if (product?.brand) details.push(product.brand)
+    if (item.estimated_unit_price !== null) details.push(`${currency(Number(item.estimated_unit_price) * (product?.base_quantity_per_purchase_unit ?? 1))}/${label}`)
+    return {
+      name: product?.name ?? item.custom_name ?? 'Produto',
+      quantityLabel: `${purchaseQty.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} ${label}`,
+      detail: details.join(' · '),
+      priceLabel: item.estimated_unit_price === null ? undefined : currency(purchaseQty * Number(item.estimated_unit_price) * (product?.base_quantity_per_purchase_unit ?? 1)),
+      checked: item.is_checked,
+    }
+  }
+
+  function pdfData(): ShoppingPdfData {
+    return {
+      householdName,
+      listName: list?.name ?? 'Lista de compras',
+      pending: pendingItems.map(pdfItem),
+      checked: checkedItems.map(pdfItem),
+      estimatedTotalLabel: currency(estimatedTotal),
+      budgetLabel: budgetInput.trim() ? currency(Number(budgetInput)) : undefined,
+    }
+  }
+
+  function handleDownloadPdf() {
+    downloadShoppingListPdf(pdfData())
+    setNotice('PDF baixado. Você pode abrir, imprimir ou enviar sem internet.')
+  }
+
+  async function handleSharePdf() {
+    const file = new File([buildShoppingListPdf(pdfData())], `lista-de-compras-${new Date().toISOString().slice(0, 10)}.pdf`, { type: 'application/pdf' })
+    const share = navigator.share?.bind(navigator)
+    if (share && navigator.canShare?.({ files: [file] })) {
+      try {
+        await share({ files: [file], title: 'Lista de compras', text: 'Lista de compras da despensa inteligente' })
+        return
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') return
+      }
+    }
+    downloadShoppingListPdf(pdfData())
+    setNotice('Compartilhamento indisponível aqui; o PDF foi baixado para você enviar.')
+  }
 
   async function addItem(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -170,8 +219,9 @@ export function ShoppingPage({ householdId, demo = false }: Props) {
   }
 
   return <div className="module-page">
-    <div className="page-heading-row module-heading"><div><span className="eyebrow">PLANEJAMENTO DA CASA</span><h1>Lista de compras <span>🛒</span></h1><p>Uma lista compartilhada, alimentada pelo estoque e atualizada pelos moradores.</p></div><div className="module-heading-actions"><button className="button button-outline" onClick={() => void loadData()} disabled={loading}><RefreshCw size={15}/> Atualizar</button><Link className="button button-primary" to="/modo-mercado"><ShoppingCart size={15}/> Ir ao mercado</Link></div></div>
+    <div className="page-heading-row module-heading"><div><span className="eyebrow">PLANEJAMENTO DA CASA</span><h1>Lista de compras <span>🛒</span></h1><p>Uma lista compartilhada, alimentada pelo estoque e atualizada pelos moradores.</p></div><div className="module-heading-actions"><button className="button button-outline" onClick={() => void loadData()} disabled={loading}><RefreshCw size={15}/> Atualizar</button><button className="button button-outline" onClick={() => void handleSharePdf()} disabled={loading}><Share2 size={15}/> Compartilhar</button><button className="button button-primary" onClick={handleDownloadPdf} disabled={loading}><Download size={15}/> Baixar PDF</button><Link className="button button-outline" to="/modo-mercado"><ShoppingCart size={15}/> Ir ao mercado</Link></div></div>
     {demo && <div className="demo-callout"><ClipboardList size={17}/><span><strong>Prévia interativa.</strong> As alterações ficam salvas neste navegador e não são sincronizadas com outros dispositivos até conectar o Supabase.</span></div>}
+    <div className="settings-note commerce-alert"><Download size={15}/><span>O PDF funciona sem internet: baixe ou compartilhe antes de ir ao mercado. Ele também serve para quem for fazer a compra por você.</span></div>
     {error && <div className="form-alert error commerce-alert">{error}</div>}{notice && <div className="form-alert success commerce-alert">{notice}</div>}
     <section className="commerce-metrics"><article className="metric-card"><div className="metric-top"><span>Itens pendentes</span><ShoppingCart size={17}/></div><div className="metric-value">{pendingItems.length}</div><div className="metric-foot">Precisam entrar no carrinho</div></article><article className="metric-card"><div className="metric-top"><span>Já separados</span><Check size={17}/></div><div className="metric-value">{checkedItems.length}</div><div className="metric-foot">Marcados durante a compra</div></article><article className="metric-card"><div className="metric-top"><span>Estimativa registrada</span><span className="metric-icon icon-blue">R$</span></div><div className="metric-value commerce-money">{currency(estimatedTotal)}</div><div className="metric-foot">Itens com preço informado</div></article></section>
     <div className="commerce-layout">
